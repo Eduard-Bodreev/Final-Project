@@ -79,7 +79,7 @@ curl -X GET http://localhost:8080/api/v0/prices -o output.zip
 ```
 **Файл `data.csv` (пример содержимого):**
 ```csv
-id,created_at,name,category,price
+id,created_date,name,category,price
 1,2024-01-01,iPhone 13,Electronics,799.99
 2,2024-01-02,Nike Air Max,Shoes,129.99
 ...

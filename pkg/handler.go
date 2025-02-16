@@ -79,7 +79,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 			reader := csv.NewReader(csvFile)
 
-			// Читаем заголовок CSV
 			header, err := reader.Read()
 			if err != nil {
 				log.Printf("Failed to read CSV header: %v", err)
@@ -125,7 +124,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				_, err = tx.Exec(`INSERT INTO prices (id, created_at, name, category, price) 
+				_, err = tx.Exec(`INSERT INTO prices (id, create_date, name, category, price) 
 								  VALUES ($1, $2::date, $3, $4, $5::numeric)`,
 					id, record[4], record[1], record[2], fmt.Sprintf("%.2f", price))
 
@@ -147,15 +146,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-
-	// Проверка количества записей в базе данных
-	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM prices").Scan(&count)
-	if err != nil {
-		log.Printf("Failed to query database after insert: %v", err)
-	} else {
-		log.Printf("Database now contains %d records", count)
 	}
 
 	totalCategories := len(categorySet)
@@ -182,7 +172,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT id, TO_CHAR(created_at, 'YYYY-MM-DD'), name, category, price FROM prices")
+	rows, err := db.Query("SELECT id, TO_CHAR(create_date, 'YYYY-MM-DD'), name, category, price FROM prices")
 	if err != nil {
 		log.Printf("Failed to query database: %v", err)
 		http.Error(w, "Failed to query database", http.StatusInternalServerError)
@@ -193,21 +183,21 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	var csvBuffer bytes.Buffer
 	writer := csv.NewWriter(&csvBuffer)
 
-	writer.Write([]string{"id", "created_at", "name", "category", "price"})
+	writer.Write([]string{"id", "create_date", "name", "category", "price"})
 
 	for rows.Next() {
 		var id int
-		var createdAt, name, category string
+		var createDate, name, category string
 		var price float64
 
-		err := rows.Scan(&id, &createdAt, &name, &category, &price)
+		err := rows.Scan(&id, &createDate, &name, &category, &price)
 		if err != nil {
 			log.Printf("Failed to process row: %v", err)
 			http.Error(w, "Failed to process row", http.StatusInternalServerError)
 			return
 		}
 
-		writer.Write([]string{strconv.Itoa(id), createdAt, name, category, fmt.Sprintf("%.2f", price)})
+		writer.Write([]string{strconv.Itoa(id), createDate, name, category, fmt.Sprintf("%.2f", price)})
 	}
 	writer.Flush()
 
@@ -235,9 +225,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	zipWriter.Close()
-
-	zipSize := len(zipBuffer.Bytes())
-	log.Printf("ZIP file size: %d bytes", zipSize)
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=response.zip")
