@@ -13,6 +13,6 @@ go run ./cmd/main.go &
 SERVER_PID=$!
 
 echo "Ждем, что сервер запустился..."
-sleep 5
+sleep 30
 
 echo "Сервер запущен с PID $SERVER_PID"
