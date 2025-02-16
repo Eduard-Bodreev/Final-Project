@@ -10,8 +10,13 @@ echo "Запускаем PostgreSQL..."
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
+echo "Ожидаем запуск PostgreSQL..."
+until pg_isready -h localhost -p 5432 -U postgres; do
+    sleep 1
+done
+echo "PostgreSQL запущен!"
+
 echo "Создаём базу данных и пользователя..."
-cd ~
 sudo -u postgres psql <<EOF
 CREATE DATABASE project_sem_1;
 CREATE USER validator WITH PASSWORD 'val1dat0r';
