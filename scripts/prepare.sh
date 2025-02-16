@@ -1,35 +1,29 @@
 #!/bin/bash
 
-set -e  # Прекращать выполнение при ошибке
+echo "Устанавливаем зависимости Go..."
+go mod tidy
 
-echo "Устанавливаем PostgreSQL..."
-sudo apt update
-sudo apt install -y postgresql postgresql-contrib unzip curl
+DB_HOST=${POSTGRES_HOST:-localhost}
+DB_PORT=${POSTGRES_PORT:-5432}
+DB_USER=${POSTGRES_USER:-validator}
+DB_PASSWORD=${POSTGRES_PASSWORD:-val1dat0r}
+DB_NAME=${POSTGRES_DB:-project-sem-1}
 
-echo "Запускаем PostgreSQL..."
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-
-echo "Ожидаем запуск PostgreSQL..."
-until pg_isready -h localhost -p 5432 -U postgres; do
-    sleep 1
+echo "Ожидаем доступности PostgreSQL..."
+until PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME -c '\q' 2>/dev/null; do
+  >&2 echo "PostgreSQL ещё недоступен, ждём..."
+  sleep 3
 done
-echo "PostgreSQL запущен!"
+echo "PostgreSQL доступен!"
 
-echo "Создаём базу данных и пользователя..."
-sudo -u postgres psql <<EOF
-CREATE DATABASE project_sem_1;
-CREATE USER validator WITH PASSWORD 'val1dat0r';
-GRANT ALL PRIVILEGES ON DATABASE project_sem_1 TO validator;
-ALTER DATABASE project_sem_1 OWNER TO validator;
-\c project_sem_1
+echo "Создаём базу данных, если её нет..."
+PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME <<EOF
 CREATE TABLE IF NOT EXISTS prices (
     id SERIAL PRIMARY KEY,
-    created_at DATE NOT NULL,
     name TEXT NOT NULL,
     category TEXT NOT NULL,
-    price NUMERIC NOT NULL
+    price NUMERIC NOT NULL,
+    create_date DATE NOT NULL
 );
 EOF
-
 echo "Настройка завершена!"
