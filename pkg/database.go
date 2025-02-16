@@ -27,7 +27,7 @@ func InitDB() (*sql.DB, error) {
 	for i := 0; i < 10; i++ {
 		err = db.Ping()
 		if err == nil {
-			log.Println("✅ Database is ready!")
+			log.Println("Database is ready!")
 			return db, nil
 		}
 		log.Printf("⏳ Database not ready, retrying in 2s... (%d/10)", i+1)
