@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -20,8 +19,10 @@ func main() {
 	}
 	defer db.Close()
 
-	http.HandleFunc("/api/v0/prices", pkg.HandlePrices)
+	handler := pkg.NewHandler(db)
 
-	fmt.Println("Server is running on port 8080...")
+	http.HandleFunc("/api/v0/prices", handler.HandlePrices)
+
+	log.Println("Server is running on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

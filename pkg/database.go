@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -24,15 +23,11 @@ func InitDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("error opening database: %w", err)
 	}
 
-	for i := 0; i < 10; i++ {
-		err = db.Ping()
-		if err == nil {
-			log.Println("Database is ready!")
-			return db, nil
-		}
-		log.Printf("⏳ Database not ready, retrying in 2s... (%d/10)", i+1)
-		time.Sleep(2 * time.Second)
+	if err = db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 
-	return nil, fmt.Errorf("database not ready after multiple attempts: %v", err)
+	log.Println("Database is ready!")
+	return db, nil
 }

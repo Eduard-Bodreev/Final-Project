@@ -3,6 +3,7 @@ package pkg
 import (
 	"archive/zip"
 	"bytes"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -12,29 +13,29 @@ import (
 	"strconv"
 )
 
-func HandlePrices(w http.ResponseWriter, r *http.Request) {
+type Handler struct {
+	db *sql.DB
+}
+
+func NewHandler(db *sql.DB) *Handler {
+	return &Handler{db: db}
+}
+
+func (h *Handler) HandlePrices(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received %s request on /api/v0/prices", r.Method)
 
 	switch r.Method {
 	case http.MethodPost:
-		handleUpload(w, r)
+		h.handleUpload(w, r)
 	case http.MethodGet:
-		handleDownload(w, r)
+		h.handleDownload(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func handleUpload(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	log.Println("Starting file upload...")
-
-	db, err := InitDB()
-	if err != nil {
-		log.Printf("Database connection error: %v", err)
-		http.Error(w, "Database connection failed", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
@@ -60,12 +61,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var totalItems int
-	categorySet := make(map[string]struct{})
-	var totalPrice float64
-
+	var records [][]string
 	for _, f := range zipReader.File {
-		log.Printf("Found file in ZIP: %s", f.Name)
 		if f.Name == "data.csv" {
 			log.Println("Processing CSV file...")
 
@@ -78,77 +75,66 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 			defer csvFile.Close()
 
 			reader := csv.NewReader(csvFile)
-
-			header, err := reader.Read()
+			_, err = reader.Read()
 			if err != nil {
 				log.Printf("Failed to read CSV header: %v", err)
 				http.Error(w, "Failed to read CSV header", http.StatusInternalServerError)
 				return
 			}
-			log.Printf("CSV header: %v", header)
 
-			tx, err := db.Begin()
+			records, err = reader.ReadAll()
 			if err != nil {
-				log.Printf("Failed to start transaction: %v", err)
-				http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
-				return
-			}
-
-			for {
-				record, err := reader.Read()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Printf("Failed to read CSV row: %v", err)
-					http.Error(w, "Failed to read CSV", http.StatusInternalServerError)
-					tx.Rollback()
-					return
-				}
-
-				log.Printf("Processing row: %v", record)
-
-				id, err := strconv.Atoi(record[0])
-				if err != nil {
-					log.Printf("Invalid ID format: %s", record[0])
-					http.Error(w, fmt.Sprintf("Invalid ID format: %s", record[0]), http.StatusBadRequest)
-					tx.Rollback()
-					return
-				}
-
-				price, err := strconv.ParseFloat(record[3], 64)
-				if err != nil {
-					log.Printf("Invalid price format: %s", record[3])
-					http.Error(w, fmt.Sprintf("Invalid price format: %s", record[3]), http.StatusBadRequest)
-					tx.Rollback()
-					return
-				}
-
-				_, err = tx.Exec(`INSERT INTO prices (id, create_date, name, category, price) 
-								  VALUES ($1, $2::date, $3, $4, $5::numeric)`,
-					id, record[4], record[1], record[2], fmt.Sprintf("%.2f", price))
-
-				if err != nil {
-					log.Printf("Failed to insert data: %v", err)
-					http.Error(w, "Failed to insert data", http.StatusInternalServerError)
-					tx.Rollback()
-					return
-				}
-
-				totalItems++
-				totalPrice += price
-				categorySet[record[2]] = struct{}{}
-			}
-
-			if err := tx.Commit(); err != nil {
-				log.Printf("Failed to commit transaction: %v", err)
-				http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+				log.Printf("Failed to read CSV rows: %v", err)
+				http.Error(w, "Failed to read CSV rows", http.StatusInternalServerError)
 				return
 			}
 		}
 	}
 
-	totalCategories := len(categorySet)
+	tx, err := h.db.Begin()
+	if err != nil {
+		log.Printf("Failed to start transaction: %v", err)
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	for _, record := range records {
+		price, err := strconv.ParseFloat(record[3], 64)
+		if err != nil {
+			log.Printf("Invalid price format: %s", record[3])
+			http.Error(w, fmt.Sprintf("Invalid price format: %s", record[3]), http.StatusBadRequest)
+			tx.Rollback()
+			return
+		}
+
+		_, err = tx.Exec(`INSERT INTO prices (create_date, name, category, price) 
+							VALUES ($1::date, $2, $3, $4::numeric)`,
+			record[4], record[1], record[2], price)
+
+		if err != nil {
+			log.Printf("Failed to insert data: %v", err)
+			http.Error(w, "Failed to insert data", http.StatusInternalServerError)
+			tx.Rollback()
+			return
+		}
+	}
+
+	var totalItems, totalCategories int
+	var totalPrice float64
+
+	err = tx.QueryRow("SELECT COUNT(*), COUNT(DISTINCT category), SUM(price) FROM prices").Scan(&totalItems, &totalCategories, &totalPrice)
+	if err != nil {
+		log.Printf("Failed to calculate totals: %v", err)
+		http.Error(w, "Failed to calculate totals", http.StatusInternalServerError)
+		tx.Rollback()
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -161,18 +147,10 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		totalItems, totalCategories, totalPrice)
 }
 
-func handleDownload(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleDownload(w http.ResponseWriter, _ *http.Request) {
 	log.Println("Starting data download...")
 
-	db, err := InitDB()
-	if err != nil {
-		log.Printf("Database connection error: %v", err)
-		http.Error(w, "Database connection failed", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT id, TO_CHAR(create_date, 'YYYY-MM-DD'), name, category, price FROM prices")
+	rows, err := h.db.Query("SELECT TO_CHAR(create_date, 'YYYY-MM-DD'), name, category, price FROM prices")
 	if err != nil {
 		log.Printf("Failed to query database: %v", err)
 		http.Error(w, "Failed to query database", http.StatusInternalServerError)
@@ -180,30 +158,29 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var csvBuffer bytes.Buffer
-	writer := csv.NewWriter(&csvBuffer)
-
-	writer.Write([]string{"id", "create_date", "name", "category", "price"})
-
+	var records [][]string
 	for rows.Next() {
-		var id int
 		var createDate, name, category string
 		var price float64
 
-		err := rows.Scan(&id, &createDate, &name, &category, &price)
-		if err != nil {
+		if err := rows.Scan(&createDate, &name, &category, &price); err != nil {
 			log.Printf("Failed to process row: %v", err)
 			http.Error(w, "Failed to process row", http.StatusInternalServerError)
 			return
 		}
 
-		writer.Write([]string{strconv.Itoa(id), createDate, name, category, fmt.Sprintf("%.2f", price)})
+		records = append(records, []string{createDate, name, category, fmt.Sprintf("%.2f", price)})
 	}
+
+	var csvBuffer bytes.Buffer
+	writer := csv.NewWriter(&csvBuffer)
+	writer.Write([]string{"create_date", "name", "category", "price"})
+	writer.WriteAll(records)
 	writer.Flush()
 
-	if err := rows.Err(); err != nil {
-		log.Printf("Error reading rows: %v", err)
-		http.Error(w, "Error reading rows", http.StatusInternalServerError)
+	if err := writer.Error(); err != nil {
+		log.Printf("Failed to write CSV: %v", err)
+		http.Error(w, "Failed to write CSV", http.StatusInternalServerError)
 		return
 	}
 
