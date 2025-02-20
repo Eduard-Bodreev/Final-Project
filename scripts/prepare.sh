@@ -16,6 +16,10 @@ until PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME -c '\q' 2
 done
 echo "PostgreSQL доступен!"
 
+psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE project-sem-1 TO validator;"
+psql -U postgres -d project-sem-1 -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO validator;"
+psql -U postgres -d project-sem-1 -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO validator;"
+
 echo "Создаём базу данных, если её нет..."
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME <<EOF
 CREATE TABLE IF NOT EXISTS prices (

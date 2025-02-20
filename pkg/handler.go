@@ -122,7 +122,8 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	var totalItems, totalCategories int
 	var totalPrice float64
 
-	err = tx.QueryRow("SELECT COUNT(*), COUNT(DISTINCT category), SUM(price) FROM prices").Scan(&totalItems, &totalCategories, &totalPrice)
+	err = tx.QueryRow("SELECT COUNT(*), COUNT(DISTINCT category), COALESCE(SUM(price), 0) FROM prices").
+		Scan(&totalItems, &totalCategories, &totalPrice)
 	if err != nil {
 		log.Printf("Failed to calculate totals: %v", err)
 		http.Error(w, "Failed to calculate totals", http.StatusInternalServerError)
@@ -202,6 +203,8 @@ func (h *Handler) handleDownload(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	zipWriter.Close()
+
+	log.Printf("Sending ZIP file of size: %d bytes", zipBuffer.Len())
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=response.zip")

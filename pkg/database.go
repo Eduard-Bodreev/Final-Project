@@ -18,6 +18,7 @@ const (
 
 func InitDB() (*sql.DB, error) {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", user, password, host, port, dbname)
+	log.Printf("Connecting to database with DSN: %s", dsn)
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("error opening database: %w", err)
